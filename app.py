@@ -1,13 +1,12 @@
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 from pydub import AudioSegment
-import os, time, requests, io
+import os, time, requests, io, sys
 from pathlib import Path
 
 # --- 🔧 PATCH para Python 3.13 (audioop removido) ---
 try:
     import pyaudioop
-    import sys
     sys.modules["audioop"] = pyaudioop
 except ImportError:
     pass
@@ -36,7 +35,7 @@ def call_replicate(model, payload):
     get_url = j.get("urls", {}).get("get")
     if not get_url:
         return None
-    for _ in range(40):  # até 80s de espera
+    for _ in range(40):  # até ~80s de espera
         pr = requests.get(get_url, headers=headers, timeout=30)
         pj = pr.json()
         if pj.get("status") == "succeeded":
@@ -50,10 +49,12 @@ def call_replicate(model, payload):
         time.sleep(2)
     return None
 
+
 # Página inicial
 @app.route("/")
 def index():
     return render_template("index.html")
+
 
 # Endpoint principal de geração
 @app.post("/api/generate")
@@ -104,6 +105,7 @@ def generate():
             result["error"] = str(e)
 
     return jsonify(result)
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT)
