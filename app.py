@@ -1,36 +1,28 @@
-import sys, types
-import os, time, requests, io
+from flask import Flask, request, jsonify, render_template
+from dotenv import load_dotenv
+from pydub import AudioSegment
+import os, time, requests, io, sys
 from pathlib import Path
 
 # --- 🔧 PATCH para Python 3.13 (audioop removido) ---
-# Cria módulo falso para evitar erro do pydub
-if "audioop" not in sys.modules:
-    sys.modules["audioop"] = types.SimpleNamespace(
-        add=lambda *a, **kw: None,
-        mul=lambda *a, **kw: None,
-        avg=lambda *a, **kw: None,
-        rms=lambda *a, **kw: 0,
-        max=lambda *a, **kw: 0,
-        min=lambda *a, **kw: 0,
-        tostereo=lambda *a, **kw: None,
-        tomono=lambda *a, **kw: None
-    )
+# Garante compatibilidade com pydub
+try:
+    import pyaudioop
+    sys.modules["audioop"] = pyaudioop
+except ImportError:
+    sys.modules["audioop"] = None
+# ---------------------------------------------------
 
-from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template
-from pydub import AudioSegment
-# ----------------------------------------------------
 load_dotenv()
 app = Flask(__name__)
 
-# Variáveis de ambiente (.env ou Render Dashboard)
+# 🔑 Variáveis de ambiente (Render Dashboard -> Environment)
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 MUSIC_MODEL = os.getenv("REPLICATE_MODEL_MUSIC")
 VOICE_MODEL = os.getenv("REPLICATE_MODEL_VOICE")
 PORT = int(os.getenv("PORT", "8000"))
 
-
-# Função genérica para chamar a API do Replicate
+# 🎛 Função genérica para chamar a API do Replicate
 def call_replicate(model, payload):
     url = f"https://api.replicate.com/v1/models/{model}/predictions"
     headers = {
@@ -38,14 +30,17 @@ def call_replicate(model, payload):
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+
     r = requests.post(url, json={"input": payload}, headers=headers, timeout=60)
     r.raise_for_status()
     j = r.json()
+
     get_url = j.get("urls", {}).get("get")
     if not get_url:
         return None
 
-    for _ in range(40):  # até ~80s de espera
+    # ⏳ Aguarda até 80 segundos a geração
+    for _ in range(40):
         pr = requests.get(get_url, headers=headers, timeout=30)
         pj = pr.json()
         if pj.get("status") == "succeeded":
@@ -60,11 +55,13 @@ def call_replicate(model, payload):
     return None
 
 
+# 🏠 Página inicial (interface HTML)
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
+# 🎵 Endpoint principal - geração de música/voz
 @app.post("/api/generate")
 def generate():
     data = request.get_json(force=True)
@@ -80,10 +77,12 @@ def generate():
 
     result = {"instrumental": None, "voice": None, "combined": None}
 
+    # 🎹 Gera instrumental
     if mode in ("instrumental", "combined"):
         music_url = call_replicate(MUSIC_MODEL, {"prompt": prompt, "duration": 60})
         result["instrumental"] = music_url
 
+    # 🎤 Gera voz
     if mode in ("voice", "combined"):
         voice_payload = {
             "prompt": prompt,
@@ -92,22 +91,29 @@ def generate():
         voice_url = call_replicate(VOICE_MODEL, voice_payload)
         result["voice"] = voice_url
 
+    # 🎧 Combina instrumental + voz
     if mode == "combined" and result["instrumental"] and result["voice"]:
         try:
             music_data = requests.get(result["instrumental"]).content
             voice_data = requests.get(result["voice"]).content
+
             music = AudioSegment.from_file(io.BytesIO(music_data))
             voice = AudioSegment.from_file(io.BytesIO(voice_data))
             combined = music.overlay(voice)
-            out_buf = io.BytesIO()
-            combined.export(out_buf, format="wav")
 
+            # Exporta o áudio final em WAV e MP3
             Path("static").mkdir(exist_ok=True)
-            out_path = "static/combined.wav"
-            with open(out_path, "wb") as f:
-                f.write(out_buf.getbuffer())
+            out_wav = "static/combined.wav"
+            out_mp3 = "static/combined.mp3"
 
-            result["combined"] = f"/{out_path}"
+            combined.export(out_wav, format="wav")
+            combined.export(out_mp3, format="mp3")
+
+            result["combined"] = {
+                "wav": f"/{out_wav}",
+                "mp3": f"/{out_mp3}"
+            }
+
         except Exception as e:
             result["error"] = str(e)
 
@@ -116,4 +122,3 @@ def generate():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT)
-
