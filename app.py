@@ -4,14 +4,25 @@ from pydub import AudioSegment
 import os, time, requests, io
 from pathlib import Path
 
+# --- 🔧 PATCH para Python 3.13 (audioop removido) ---
+try:
+    import pyaudioop
+    import sys
+    sys.modules["audioop"] = pyaudioop
+except ImportError:
+    pass
+# ---------------------------------------------------
+
 load_dotenv()
 app = Flask(__name__)
 
+# Variáveis de ambiente (.env ou Render Dashboard)
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 MUSIC_MODEL = os.getenv("REPLICATE_MODEL_MUSIC")
 VOICE_MODEL = os.getenv("REPLICATE_MODEL_VOICE")
 PORT = int(os.getenv("PORT", "8000"))
 
+# Função genérica para chamar a API do Replicate
 def call_replicate(model, payload):
     url = f"https://api.replicate.com/v1/models/{model}/predictions"
     headers = {
@@ -25,7 +36,7 @@ def call_replicate(model, payload):
     get_url = j.get("urls", {}).get("get")
     if not get_url:
         return None
-    for _ in range(30):
+    for _ in range(40):  # até 80s de espera
         pr = requests.get(get_url, headers=headers, timeout=30)
         pj = pr.json()
         if pj.get("status") == "succeeded":
@@ -39,10 +50,12 @@ def call_replicate(model, payload):
         time.sleep(2)
     return None
 
+# Página inicial
 @app.route("/")
 def index():
     return render_template("index.html")
 
+# Endpoint principal de geração
 @app.post("/api/generate")
 def generate():
     data = request.get_json(force=True)
@@ -58,10 +71,12 @@ def generate():
 
     result = {"instrumental": None, "voice": None, "combined": None}
 
+    # Gera instrumental
     if mode in ("instrumental", "combined"):
         music_url = call_replicate(MUSIC_MODEL, {"prompt": prompt, "duration": 60})
         result["instrumental"] = music_url
 
+    # Gera voz
     if mode in ("voice", "combined"):
         voice_payload = {
             "prompt": prompt,
@@ -70,6 +85,7 @@ def generate():
         voice_url = call_replicate(VOICE_MODEL, voice_payload)
         result["voice"] = voice_url
 
+    # Combina instrumental + voz
     if mode == "combined" and result["instrumental"] and result["voice"]:
         try:
             music_data = requests.get(result["instrumental"]).content
@@ -79,8 +95,8 @@ def generate():
             combined = music.overlay(voice)
             out_buf = io.BytesIO()
             combined.export(out_buf, format="wav")
-            out_path = "static/combined.wav"
             Path("static").mkdir(exist_ok=True)
+            out_path = "static/combined.wav"
             with open(out_path, "wb") as f:
                 f.write(out_buf.getbuffer())
             result["combined"] = f"/{out_path}"
