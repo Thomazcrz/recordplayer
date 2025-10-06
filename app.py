@@ -1,18 +1,25 @@
-from flask import Flask, request, jsonify, render_template
-from dotenv import load_dotenv
-from pydub import AudioSegment
-import os, time, requests, io, sys
+import sys, types
+import os, time, requests, io
 from pathlib import Path
 
-# --- 🔧 PATCH Python 3.13 (audioop removido) ---
-try:
-    import pyaudioop
-    sys.modules["audioop"] = pyaudioop
-except ImportError:
-    # Fallback para builds sem o módulo
-    sys.modules["audioop"] = None
-# ---------------------------------------------------
+# --- 🔧 PATCH para Python 3.13 (audioop removido) ---
+# Cria módulo falso para evitar erro do pydub
+if "audioop" not in sys.modules:
+    sys.modules["audioop"] = types.SimpleNamespace(
+        add=lambda *a, **kw: None,
+        mul=lambda *a, **kw: None,
+        avg=lambda *a, **kw: None,
+        rms=lambda *a, **kw: 0,
+        max=lambda *a, **kw: 0,
+        min=lambda *a, **kw: 0,
+        tostereo=lambda *a, **kw: None,
+        tomono=lambda *a, **kw: None
+    )
 
+from dotenv import load_dotenv
+from flask import Flask, request, jsonify, render_template
+from pydub import AudioSegment
+# ----------------------------------------------------
 load_dotenv()
 app = Flask(__name__)
 
@@ -109,3 +116,4 @@ def generate():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT)
+
