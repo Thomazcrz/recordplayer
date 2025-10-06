@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>RecordPlayer - Gerador de Música e Voz</title>
+  <style>
+    body { background:#111; color:#eee; font-family:Arial,sans-serif; padding:2rem; }
+    h1 { color:#0ff; }
+    input,select,button { font-size:1rem; padding:0.5rem; margin:0.3rem; }
+    button { cursor:pointer; }
+    audio { display:block; margin-top:1rem; width:100%; }
+  </style>
+</head>
+<body>
+  <h1>🎧 RecordPlayer</h1>
+  <p>Gerar música, voz ou ambos com IA.</p>
+  <input id="prompt" placeholder="Descreva a música..." size="50"><br>
+  <label>Voz:</label>
+  <select id="voice">
+    <option value="male" selected>Masculina</option>
+    <option value="female">Feminina</option>
+  </select><br>
+  <button onclick="gerar('instrumental')">🎵 Instrumental</button>
+  <button onclick="gerar('voice')">🗣️ Voz</button>
+  <button onclick="gerar('combined')">🎶 Combinado</button>
+  <p id="status"></p>
+  <audio id="player" controls></audio>
+
+  <script>
+    async function gerar(mode) {
+      const prompt = document.getElementById('prompt').value.trim();
+      const voice = document.getElementById('voice').value;
+      const status = document.getElementById('status');
+      const player = document.getElementById('player');
+      if (!prompt) return alert('Digite um prompt.');
+      status.textContent = 'Gerando...';
+      player.removeAttribute('src');
+      try {
+        const r = await fetch('/api/generate', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({prompt, mode, voice})
+        });
+        const j = await r.json();
+        let url = j.combined || j.voice || j.instrumental;
+        if (url) {
+          player.src = url;
+          status.textContent = 'Pronto!';
+        } else {
+          status.textContent = 'Erro: ' + (j.error || 'falha desconhecida');
+        }
+      } catch {
+        status.textContent = 'Erro de conexão.';
+      }
+    }
+  </script>
+</body>
+</html>
